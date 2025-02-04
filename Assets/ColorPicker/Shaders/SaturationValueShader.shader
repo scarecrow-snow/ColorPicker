@@ -11,7 +11,7 @@ Shader "ColorPicker/SaturationValue"
         Tags 
         { 
             "RenderType" = "Opaque"
-            "Queue" = "Opaque"
+            "Queue" = "Geometry"
         }
         LOD 100
 

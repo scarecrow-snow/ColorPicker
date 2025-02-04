@@ -12,27 +12,22 @@ Unity用のシンプルで使いやすいカラーピッカーコンポーネン
 
 ## 必要環境
 
-- Unity 6 6000.0.29f1 にて作成
-- [R3（UniRx互換ライブラリ）](https://github.com/Cysharp/R3)
+- Unity 6 6000.0.29f1 以降
+- [R3](https://github.com/Cysharp/R3)
 
 ## インストール方法
 
 1. このリポジトリをクローンまたはダウンロード
 2. `Assets/ColorPicker` フォルダをUnityプロジェクトの `Assets` フォルダにコピー
-3. R3をプロジェクトにインストール（パッケージマネージャーまたは手動で）
+3. R3のインストール
+   - OpenUPM、NuGetでインストールしてください
 
 ## 使用方法
 
 ### 基本的なセットアップ
 
 1. シーンにカラーピッカーのプレハブをドラッグ＆ドロップ
-2. ColorPickerUIManagerコンポーネントで必要なUI要素を設定:
-   - Hue Slider: 色相選択用のスライダー
-   - Hue Slider Background: 色相グラデーション表示用のImage
-   - Saturation Value Background: 彩度/明度選択用のRawImage
-   - Color Picker Image: 選択された色を表示するImage
-
-3. UnityEventを使用する
+2. UnityEventを使用する
    - ColorPickerUIManagerコンポーネントのインスペクタ上から設定する
    - Saturation Value Backgroundがマウスなどでクリックされた場合に発火  
  
