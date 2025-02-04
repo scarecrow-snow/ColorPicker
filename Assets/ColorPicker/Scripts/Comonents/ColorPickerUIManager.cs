@@ -128,7 +128,6 @@ namespace ColorPicker.Components
         /// </summary>
         private void HandleSaturationValueClick(PointerEventData eventData)
         {
-            // クリック位置をRectTransformのローカル座標に変換
             if (RectTransformUtility.ScreenPointToLocalPointInRectangle(
                 saturationValueBackground.rectTransform,
                 eventData.position,
@@ -142,25 +141,17 @@ namespace ColorPicker.Components
 
                 var saturationValue = new Vector2(saturation, value);
                 saturationValueChangedProperty.Value = saturationValue;
-                UpdatePointerPosition(saturationValue);
+                UpdatePointerPosition(localPoint);
             }
         }
 
         /// <summary>
         /// ポインターの位置を更新します
         /// </summary>
-        private void UpdatePointerPosition(Vector2 normalizedPosition)
+        private void UpdatePointerPosition(Vector2 localPoint)
         {
             if (colorPickerPointer == null) return;
-
-            // 正規化された位置（0-1）をRectTransformの座標に変換
-            var rect = saturationValueBackground.rectTransform.rect;
-            var position = new Vector2(
-                rect.x + (rect.width * normalizedPosition.x),
-                rect.y + (rect.height * normalizedPosition.y)
-            );
-
-            colorPickerPointer.localPosition = position;
+            colorPickerPointer.localPosition = localPoint;
         }
 
         /// <summary>
