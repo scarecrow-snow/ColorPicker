@@ -9,7 +9,7 @@ using ColorPicker.Core;
 using System;
 
 
-namespace ColorPicker
+namespace ColorPicker.Components
 {
     /// <summary>
     /// カラーピッカーのView層の実装
@@ -30,7 +30,7 @@ namespace ColorPicker
         /// <summary>彩度と明度の表示に使用するシェーダー</summary>
         [SerializeField] private Shader saturationValueShader;
         /// <summary>色が選択されたときに発火するイベント</summary>
-        [SerializeField] private UnityEvent<Color> colorPickedEvent;
+        public UnityEvent<Color> colorPickedEvent;
 
         /// <summary>MVPパターンのPresenter</summary>
         private ColorPickerPresenter presenter;
