@@ -2,85 +2,223 @@ using UnityEngine;
 using UnityEngine.UI;
 using UnityEngine.Events;
 using R3;
+using R3.Triggers;
+using UnityEngine.EventSystems;
+
+using ColorPicker.Core;
+using System;
 
 
 namespace ColorPicker
 {
     /// <summary>
-    /// カラーピッカーのUI要素とイベントを管理するクラス
+    /// カラーピッカーのView層の実装
+    /// UIコンポーネントとの相互作用を管理します
     /// </summary>
-    public class ColorPickerUIManager : MonoBehaviour
+    public class ColorPickerUIManager : MonoBehaviour, IColorPickerView
     {
-        [SerializeField]
-        [Tooltip("色相（Hue）を選択するスライダー（0-1の範囲）")]
-        private Slider hueSlider;
+        /// <summary>色相を選択するスライダー</summary>
+        [SerializeField] private Slider hueSlider;
+        /// <summary>色相スライダーの背景画像</summary>
+        [SerializeField] private Image hueSliderBackground;
+        /// <summary>彩度と明度を選択する領域の背景画像</summary>
+        [SerializeField] private Image saturationValueBackground;
+        /// <summary>選択された色を表示する画像</summary>
+        [SerializeField] private Image colorPickerImage;
+        /// <summary>彩度と明度の選択位置を示すポインター</summary>
+        [SerializeField] private RectTransform colorPickerPointer;
+        /// <summary>彩度と明度の表示に使用するシェーダー</summary>
+        [SerializeField] private Shader saturationValueShader;
+        /// <summary>色が選択されたときに発火するイベント</summary>
+        [SerializeField] private UnityEvent<Color> colorPickedEvent;
 
-        [SerializeField]
-        [Tooltip("色相スライダーの背景となるグラデーション画像")]
-        private Image hueSliderBackground;
+        /// <summary>MVPパターンのPresenter</summary>
+        private ColorPickerPresenter presenter;
+        /// <summary>シェーダーの制御を担当するコントローラー</summary>
+        private ColorPickerShaderController shaderController;
+        /// <summary>色相の変更を通知するReactiveProperty</summary>
+        private ReactiveProperty<float> hueChangedProperty = new(0f);
+        /// <summary>彩度と明度の変更を通知するReactiveProperty</summary>
+        private ReactiveProperty<Vector2> saturationValueChangedProperty = new(new Vector2(0.5f, 0.5f));
 
-        [SerializeField]
-        [Tooltip("彩度（横軸）と明度（縦軸）を選択するための領域画像")]
-        private RawImage saturationValueBackground;
-        
-        [SerializeField]
-        [Tooltip("選択された色を表示するImage")]
-        private Image colorPickerImage;
+        /// <summary>グラデーションテクスチャの幅</summary>
+        private const int GradientTextureWidth = 256;
+        /// <summary>グラデーションテクスチャの高さ</summary>
+        private const int GradientTextureHeight = 1;
+        /// <summary>連続的な値の変更を間引く時間（ミリ秒）</summary>
+        private const int ThrottleDelayMilliseconds = 50;
 
-        [SerializeField]
-        [Tooltip("選択された色を通知するイベント")]
-        private UnityEvent<Color> colorPickedEvent;
+        // IColorPickerViewの実装
+        public Observable<float> OnHueChanged => hueChangedProperty;
+        public Observable<Vector2> OnSaturationValueChanged => saturationValueChangedProperty;
 
-        /// <summary>
-        /// カラーピッカーのロジックを処理するインスタンス
-        /// </summary>
-        private ColorPicker colorPicker;
+        // 全インスタンス間で共有するリソース
+        private static Sprite hueSliderBackgroundSprite;
+        private static Texture2D hueTexture;
+        private static int instanceCount = 0;
 
-        
-
-        /// <summary>
-        /// 初期化処理
-        /// </summary>
         private void Start()
         {
+            instanceCount++;
+            CreateHueSliderBackground();
+            
+            // 各コンポーネントの初期化
+            shaderController = new ColorPickerShaderController(saturationValueShader);
+            saturationValueBackground.material = shaderController.GetMaterial();
 
-            colorPicker = new ColorPicker(
-                hueSliderBackground, 
-                saturationValueBackground,
-                hueSlider.onValueChanged.AsObservable()
+            // MVPパターンの構築
+            var model = new ColorPickerModel();
+            presenter = new ColorPickerPresenter(model, this);
+
+            // スライダーのイベントを購読
+            hueSlider.onValueChanged
+                .AsObservable()
+                .ThrottleFirstLast(TimeSpan.FromMilliseconds(ThrottleDelayMilliseconds))
+                .Subscribe(OnHueSliderChanged)
+                .AddTo(this);
+
+            // 彩度・明度の選択エリアのクリックイベントを購読
+            saturationValueBackground
+                .OnPointerClickAsObservable()
+                .Subscribe(eventData => HandleSaturationValueClick(eventData))
+                .AddTo(this);
+
+            // 初期値の設定
+            if (hueSlider != null)
+            {
+                OnHueSliderChanged(hueSlider.value);
+            }
+        }
+
+
+        /// <summary>
+        /// 色相スライダーの値が変更されたときの処理
+        /// </summary>
+        /// <param name="value">新しい色相値（0-1）</param>
+        private void OnHueSliderChanged(float value)
+        {
+            hueChangedProperty.Value = value;
+            UpdateHueShader(value);
+        }
+
+        /// <summary>
+        /// 選択された色をUIに反映し、イベントを発火します
+        /// </summary>
+        /// <param name="color">選択された色</param>
+        public void UpdateColorDisplay(Color color)
+        {
+            if (colorPickerImage != null)
+            {
+                colorPickerImage.color = color;
+                colorPickedEvent?.Invoke(color);
+            }
+        }
+
+        /// <summary>
+        /// シェーダーの色相値を更新します
+        /// </summary>
+        /// <param name="hue">新しい色相値（0-1）</param>
+        public void UpdateHueShader(float hue)
+        {
+            shaderController?.UpdateHue(hue);
+        }
+
+        /// <summary>
+        /// 彩度・明度の選択エリアがクリックされたときの処理
+        /// </summary>
+        private void HandleSaturationValueClick(PointerEventData eventData)
+        {
+            // クリック位置をRectTransformのローカル座標に変換
+            if (RectTransformUtility.ScreenPointToLocalPointInRectangle(
+                saturationValueBackground.rectTransform,
+                eventData.position,
+                eventData.pressEventCamera,
+                out Vector2 localPoint))
+            {
+                // ローカル座標を0-1の範囲に正規化
+                Rect rect = saturationValueBackground.rectTransform.rect;
+                float saturation = Mathf.Clamp01((localPoint.x - rect.x) / rect.width);
+                float value = Mathf.Clamp01((localPoint.y - rect.y) / rect.height);
+
+                var saturationValue = new Vector2(saturation, value);
+                saturationValueChangedProperty.Value = saturationValue;
+                UpdatePointerPosition(saturationValue);
+            }
+        }
+
+        /// <summary>
+        /// ポインターの位置を更新します
+        /// </summary>
+        private void UpdatePointerPosition(Vector2 normalizedPosition)
+        {
+            if (colorPickerPointer == null) return;
+
+            // 正規化された位置（0-1）をRectTransformの座標に変換
+            var rect = saturationValueBackground.rectTransform.rect;
+            var position = new Vector2(
+                rect.x + (rect.width * normalizedPosition.x),
+                rect.y + (rect.height * normalizedPosition.y)
             );
-        }
 
-        void OnEnable()
-        {
-            saturationValueBackground.GetComponent<ClickedImage>().OnColorPicked += OnColorPicked;
-        }
-
-        void OnDisable()
-        {
-            saturationValueBackground.GetComponent<ClickedImage>().OnColorPicked -= OnColorPicked;
+            colorPickerPointer.localPosition = position;
         }
 
         /// <summary>
-        /// クリックされた色を取得して、colorPickerImageに適用する
+        /// 色相スライダーの背景グラデーションを生成します
+        /// 静的リソースは一度だけ生成され、全インスタンスで共有されます
         /// </summary>
-        /// <param name="color">クリックされた色</param>
-        private void OnColorPicked(Color color)
+        private void CreateHueSliderBackground()
         {
-            colorPickerImage.color = color;
-            colorPickedEvent?.Invoke(color);
+            if(hueSliderBackgroundSprite == null)
+            {
+                hueTexture = new Texture2D(GradientTextureWidth, GradientTextureHeight);
+                ApplyHueGradient(hueTexture);
+                hueSliderBackgroundSprite = Sprite.Create(
+                    hueTexture, 
+                    new Rect(0, 0, GradientTextureWidth, GradientTextureHeight), 
+                    new Vector2(0.5f, 0.5f)
+                );
+            }
+            hueSliderBackground.sprite = hueSliderBackgroundSprite;
         }
 
         /// <summary>
-        /// クリーンアップ処理
+        /// 色相グラデーションをテクスチャに適用します
         /// </summary>
+        private void ApplyHueGradient(Texture2D texture)
+        {
+            for (int i = 0; i < GradientTextureWidth; i++)
+            {
+                Color color = Color.HSVToRGB(i / (float)GradientTextureWidth, 1f, 1f);
+                texture.SetPixel(i, 0, color);
+            }
+            texture.Apply();
+        }
+
         private void OnDestroy()
         {
-            if (colorPicker != null)
+            instanceCount--;
+            
+            // 最後のインスタンスが破棄されるときのみ静的リソースを解放
+            if (instanceCount == 0)
             {
-                colorPicker.Dispose();
-                colorPicker = null;
+                if (hueSliderBackgroundSprite != null)
+                {
+                    Destroy(hueSliderBackgroundSprite);
+                    hueSliderBackgroundSprite = null;
+                }
+                
+                if (hueTexture != null)
+                {
+                    Destroy(hueTexture);
+                    hueTexture = null;
+                }
             }
+
+            presenter?.Dispose();
+            shaderController?.Dispose();
+            hueChangedProperty?.Dispose();
+            saturationValueChangedProperty?.Dispose();
         }
     }
 }
